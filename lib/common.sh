@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+# Shared config and helpers sourced by the main interview-sandbox script.
+
+VM_NAME="interview-sandbox"
+VM_IMAGE="22.04"
+VM_CPUS="2"
+VM_MEMORY="4G"
+VM_DISK="20G"
+CODE_SERVER_PORT="8080"
+
+WORKDIR="$HOME/.interview-sandbox"
+KEY_FILE="$WORKDIR/keys/id_ed25519"
+KNOWN_HOSTS_FILE="$WORKDIR/known_hosts"
+TUNNEL_PID_FILE="$WORKDIR/tunnel.pid"
+PASSWORD_FILE="$WORKDIR/code-server-password"
+
+SSH_CONFIG_DIR="$HOME/.ssh/config.d"
+SSH_CONFIG_FILE="$SSH_CONFIG_DIR/interview-sandbox.conf"
+SSH_MAIN_CONFIG="$HOME/.ssh/config"
+
+log()  { printf '\033[1;32m✔\033[0m %s\n' "$1"; }
+warn() { printf '\033[1;33m!\033[0m %s\n' "$1"; }
+err()  { printf '\033[1;31m✘ %s\033[0m\n' "$1" >&2; }
+die()  { err "$1"; exit 1; }
+
+require_multipass() {
+  command -v multipass >/dev/null 2>&1 || die "Multipass is not installed. Run ./install.sh for instructions."
+}
+
+vm_exists() {
+  multipass info "$VM_NAME" >/dev/null 2>&1
+}
+
+vm_state() {
+  multipass info "$VM_NAME" 2>/dev/null | awk -F': *' '/^State/{print $2; exit}'
+}
+
+vm_ip() {
+  multipass info "$VM_NAME" 2>/dev/null | awk -F': *' '/^IPv4/{print $2; exit}'
+}
+
+require_running_vm() {
+  vm_exists || die "No sandbox VM found. Run 'interview-sandbox up' first."
+  [[ "$(vm_state)" == "Running" ]] || die "Sandbox VM isn't running. Run 'interview-sandbox up' first."
+}

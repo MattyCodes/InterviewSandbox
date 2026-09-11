@@ -1,0 +1,35 @@
+#cloud-config
+ssh_authorized_keys:
+  - __SSH_PUBLIC_KEY__
+
+package_update: true
+package_upgrade: false
+
+packages:
+  - git
+  - curl
+  - neovim
+  - python3
+  - python3-pip
+  - ruby-full
+  - clamav
+  - clamav-daemon
+
+write_files:
+  - path: /home/ubuntu/.config/code-server/config.yaml
+    owner: ubuntu:ubuntu
+    permissions: '0600'
+    content: |
+      bind-addr: 127.0.0.1:__CODE_SERVER_PORT__
+      auth: password
+      password: __CODE_SERVER_PASSWORD__
+      cert: false
+
+runcmd:
+  - mkdir -p /home/ubuntu/workspace /home/ubuntu/incoming
+  - chown -R ubuntu:ubuntu /home/ubuntu/workspace /home/ubuntu/incoming
+  - curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+  - apt-get install -y nodejs
+  - freshclam --quiet || true
+  - curl -fsSL https://code-server.dev/install.sh | sh
+  - systemctl enable --now code-server@ubuntu

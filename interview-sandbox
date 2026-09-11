@@ -1,0 +1,161 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/common.sh
+source "$SCRIPT_DIR/lib/common.sh"
+# shellcheck source=lib/ssh.sh
+source "$SCRIPT_DIR/lib/ssh.sh"
+
+usage() {
+  cat <<'EOF'
+Usage: interview-sandbox <command> [args]
+
+Commands:
+  up                  Launch and provision the sandbox VM, start code-server, open browser
+  open <repo-url>     Scan, then move a repo into the sandbox workspace
+  scan <repo-url>     Clone and scan a repo inside the sandbox without opening it
+  code                Reopen the browser tunnel to an already-running sandbox
+  destroy             Delete the VM and all local sandbox state
+  status              Show whether the sandbox is running
+EOF
+}
+
+run_remote_scan() {
+  local repo_url="$1" name="$2"
+  remote_exec "rm -rf ~/incoming/$name && git clone --quiet '$repo_url' ~/incoming/$name"
+
+  cat "$SCRIPT_DIR/lib/provision/heuristic-scan.sh" \
+    | remote_exec "cat > /tmp/heuristic-scan.sh && chmod +x /tmp/heuristic-scan.sh"
+  remote_exec "/tmp/heuristic-scan.sh ~/incoming/$name"
+
+  echo
+  echo "Running ClamAV..."
+  remote_exec "sudo freshclam --quiet || true"
+  remote_exec "clamscan -ri ~/incoming/$name"
+}
+
+cmd_up() {
+  require_multipass
+  mkdir -p "$WORKDIR/keys"
+
+  if vm_exists; then
+    log "VM '$VM_NAME' already exists."
+  else
+    [[ -f "$KEY_FILE" ]] || ssh-keygen -t ed25519 -N "" -f "$KEY_FILE" -C "interview-sandbox" -q
+
+    local pubkey password cloud_init_file
+    pubkey="$(cat "${KEY_FILE}.pub")"
+    password="$(openssl rand -hex 4)"
+    echo "$password" > "$PASSWORD_FILE"
+    chmod 600 "$PASSWORD_FILE"
+
+    cloud_init_file="$(mktemp)"
+    trap 'rm -f "$cloud_init_file"' RETURN
+    sed -e "s|__SSH_PUBLIC_KEY__|$pubkey|" \
+        -e "s|__CODE_SERVER_PASSWORD__|$password|" \
+        -e "s|__CODE_SERVER_PORT__|$CODE_SERVER_PORT|" \
+        "$SCRIPT_DIR/lib/provision/cloud-init.yaml.tmpl" > "$cloud_init_file"
+
+    log "Launching VM '$VM_NAME' (Ubuntu $VM_IMAGE)..."
+    multipass launch "$VM_IMAGE" --name "$VM_NAME" \
+      --cpus "$VM_CPUS" --memory "$VM_MEMORY" --disk "$VM_DISK" \
+      --cloud-init "$cloud_init_file"
+
+    log "Provisioning: python3, ruby, node, neovim, code-server..."
+    multipass exec "$VM_NAME" -- cloud-init status --wait
+  fi
+
+  local ip
+  ip="$(vm_ip)"
+  [[ -n "$ip" ]] || die "Could not determine VM IP address."
+
+  ensure_ssh_include
+  write_ssh_config "$ip"
+  wait_for_code_server
+
+  log "Starting code-server, opening tunnel..."
+  start_tunnel
+
+  log "Opening browser..."
+  open_browser "http://localhost:${CODE_SERVER_PORT}"
+
+  local password
+  password="$(cat "$PASSWORD_FILE" 2>/dev/null || echo "(see ~/.config/code-server/config.yaml in the VM)")"
+
+  echo
+  echo "Editor open at http://localhost:${CODE_SERVER_PORT} (password: ${password}, shown once)"
+  echo
+  echo "Pull in the challenge repo:"
+  echo "  interview-sandbox open <repo-url>"
+  echo
+  echo "When you're done:"
+  echo "  interview-sandbox destroy"
+}
+
+cmd_scan() {
+  local repo_url="${1:?Usage: interview-sandbox scan <repo-url>}"
+  require_running_vm
+  local name
+  name="$(basename "$repo_url" .git)"
+  log "Cloning and scanning '$repo_url' inside the sandbox..."
+  if run_remote_scan "$repo_url" "$name"; then
+    log "ClamAV: no issues found."
+    return 0
+  else
+    warn "ClamAV flagged something in '$name'. Review the output above before opening it."
+    return 1
+  fi
+}
+
+cmd_open() {
+  local repo_url="${1:?Usage: interview-sandbox open <repo-url>}"
+  require_running_vm
+  local name
+  name="$(basename "$repo_url" .git)"
+  if ! cmd_scan "$repo_url"; then
+    die "Not moved into your workspace — the scan flagged an issue. Review it above."
+  fi
+  remote_exec "rm -rf ~/workspace/$name && mv ~/incoming/$name ~/workspace/$name"
+  log "Ready in the workspace."
+  echo "In the browser editor: File > Open Folder > /home/ubuntu/workspace/$name"
+}
+
+cmd_code() {
+  require_running_vm
+  ensure_ssh_include
+  write_ssh_config "$(vm_ip)"
+  start_tunnel
+  open_browser "http://localhost:${CODE_SERVER_PORT}"
+  echo "Editor open at http://localhost:${CODE_SERVER_PORT}"
+}
+
+cmd_status() {
+  if vm_exists; then
+    echo "VM: $(vm_state)  IP: $(vm_ip)"
+  else
+    echo "No sandbox VM exists."
+  fi
+}
+
+cmd_destroy() {
+  require_multipass
+  stop_tunnel
+  if vm_exists; then
+    multipass delete "$VM_NAME" --purge
+  fi
+  remove_ssh_config
+  rm -rf "$WORKDIR"
+  log "Sandbox destroyed."
+}
+
+case "${1:-}" in
+  up) shift; cmd_up "$@" ;;
+  open) shift; cmd_open "$@" ;;
+  scan) shift; cmd_scan "$@" ;;
+  code) shift; cmd_code "$@" ;;
+  status) shift; cmd_status "$@" ;;
+  destroy) shift; cmd_destroy "$@" ;;
+  -h|--help|help|"") usage ;;
+  *) err "Unknown command: $1"; usage; exit 1 ;;
+esac
