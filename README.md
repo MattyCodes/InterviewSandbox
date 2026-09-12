@@ -1,57 +1,30 @@
-# InterviewSandbox
+# Interview Sandbox
 
-Run untrusted take-home / live-coding interview challenges in a disposable,
-isolated VM — never on your host machine, never touching your host filesystem.
+The purpose of this repository is to make it easy to create/destroy safe, 
+ephemeral VMs for interviews and technical challenges without worrying about 
+any malicious code being hidden within. It should be noted that this is not bulletproof by any means (VM-specific exploits, and attacks targeting the 
+host's hardware can still be effective etc), however this is still a worthwhile safety measure for most normal use-cases.
 
-One command spins up an Ubuntu VM (via [Multipass](https://multipass.run))
-with Python, Ruby, Node, and Neovim preinstalled, running
-[code-server](https://github.com/coder/code-server) so you work entirely from
-your browser. Another command destroys it, along with everything in it.
+---
 
 ## Requirements
-
 - [Multipass](https://multipass.run/install) — run `./install.sh` if you're not sure whether it's installed
 - `ssh`, `git`, `openssl` (already on macOS/Linux)
 
-## Usage
+---
 
-```
-./interview-sandbox up
-./interview-sandbox open https://github.com/example/challenge-repo
-./interview-sandbox destroy
-```
+## Steps
 
-- **`up`** launches the VM, waits for provisioning, opens an SSH tunnel to
-  code-server, and opens it in your browser.
-- **`open <repo-url>`** clones the repo *inside the VM* (never on your host),
-  runs it through ClamAV plus a few heuristic checks for obviously sketchy
-  patterns (curl-pipe-to-shell, base64-decoded-and-executed, etc.), and only
-  then moves it into your workspace folder.
-- **`scan <repo-url>`** runs the same checks without adding the repo to your
-  workspace, if you just want a read before deciding.
-- **`code`** reopens the browser tunnel if you closed it without destroying
-  the VM.
-- **`status`** shows whether a sandbox VM currently exists and its state.
-- **`destroy`** deletes the VM and all local sandbox state (SSH keys, config,
-  tunnel). Nothing persists between sessions by design.
+With the required packages installed, all you should have to do is spin up the VM, open the project, and kill the VM once you're done.
+1. `./install.sh` (first time only, ensures that Multipass is installed)
+2. `./interview-sandbox up` to spin up the VM (takes a few minutes to complete)]
+   - This will print a password in your terminal, which must be entered into your browser at http://localhost:8080
+   - <img width="300" height="200" alt="IS_SS_1" src="https://github.com/user-attachments/assets/b7c4e2b6-09f5-4109-a111-e3e1e79f6fbd" />
+   - <img width="300" height="200" alt="IS_SS_2" src="https://github.com/user-attachments/assets/703f57f6-a017-402d-9644-ca00192c4cf2" />
 
-## How isolation works
+3. `./interview-sandbox open <PROJECT_URL>` to open up the given challenge/codebase (runs a heuristic scan and a ClamAV check against the project for any obvious red flags)
+   - This command will add the project to your browser IDE and can be opened under `/home/ubuntu/workspace/<PROJECT_NAME>`
+   - Command/Control+J will open a terminal window in the browser IDE for installing additional dependencies etc.
+   - <img width="300" height="200" alt="IS_SS_5" src="https://github.com/user-attachments/assets/14d5a336-167b-4fb0-858b-ac1acb1ec2f3" />
 
-- Challenge code is cloned *inside* the VM's own disk — never mounted from or
-  written to your host filesystem.
-- code-server is only reachable via an SSH tunnel bound to `localhost` — it's
-  never exposed on the VM's network interface.
-- SSH access uses a dedicated keypair and a scoped known_hosts file, generated
-  fresh per session and wiped on `destroy` — nothing touches your normal
-  `~/.ssh/config` beyond a single `Include` line pointing at `~/.ssh/config.d/`.
-
-## What this doesn't protect against
-
-- The scan is a heuristic aid, not a guarantee — always review code you don't
-  trust before running it, even inside the sandbox.
-- Multipass VMs share your machine's CPU and network interface at the
-  hypervisor level; this is VM-grade isolation, not an air-gapped machine.
-
-## License
-
-MIT
+4. `./interview-sandbox destroy` to irreversibly tear down the VM.
