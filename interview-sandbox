@@ -31,7 +31,7 @@ run_remote_scan() {
 
   echo
   echo "Running ClamAV..."
-  remote_exec "sudo freshclam --quiet || true"
+  remote_exec "sudo systemctl stop clamav-freshclam || true; sudo freshclam --quiet || true"
   remote_exec "clamscan -ri ~/incoming/$name"
 }
 
@@ -58,16 +58,38 @@ cmd_up() {
         "$SCRIPT_DIR/lib/provision/cloud-init.yaml.tmpl" > "$cloud_init_file"
 
     log "Launching VM '$VM_NAME' (Ubuntu $VM_IMAGE)..."
+    log "Provisioning (usually 3-10 minutes total, depending on your connection and CPU)..."
+
+    # multipass launch --cloud-init blocks until the whole runcmd script
+    # finishes, not just until the VM is reachable — so it's backgrounded
+    # here and we poll progress concurrently, rather than waiting on it
+    # first and only then starting to watch. See stream_provisioning_progress.
     multipass launch "$VM_IMAGE" --name "$VM_NAME" \
       --cpus "$VM_CPUS" --memory "$VM_MEMORY" --disk "$VM_DISK" \
-      --cloud-init "$cloud_init_file"
+      --timeout 600 \
+      --cloud-init "$cloud_init_file" \
+      > "$WORKDIR/launch.log" 2>&1 &
+    local launch_pid=$!
 
-    log "Provisioning: python3, ruby, node, neovim, code-server..."
-    multipass exec "$VM_NAME" -- cloud-init status --wait
+    stream_provisioning_progress "$launch_pid"
+    wait "$launch_pid" || true
+
+    if ! vm_exists; then
+      cat "$WORKDIR/launch.log" >&2 2>/dev/null || true
+      die "multipass launch failed. Run 'multipass list' to check for a stuck VM."
+    fi
+
+    local cinit_final
+    cinit_final="$(multipass exec "$VM_NAME" -- cloud-init status 2>/dev/null | awk -F': ' '{print $2}')" || true
+    if [[ "$cinit_final" != "done" ]]; then
+      err "Provisioning failed. Recent cloud-init output:"
+      multipass exec "$VM_NAME" -- sudo tail -n 40 /var/log/cloud-init-output.log 2>/dev/null || true
+      die "Run 'interview-sandbox destroy' before retrying, or 'multipass exec $VM_NAME -- cloud-init status --long' for the full error."
+    fi
   fi
 
   local ip
-  ip="$(vm_ip)"
+  ip="$(vm_ip)" || true
   [[ -n "$ip" ]] || die "Could not determine VM IP address."
 
   ensure_ssh_include

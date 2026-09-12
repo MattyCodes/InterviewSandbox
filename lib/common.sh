@@ -36,7 +36,11 @@ vm_state() {
 }
 
 vm_ip() {
-  multipass info "$VM_NAME" 2>/dev/null | awk -F': *' '/^IPv4/{print $2; exit}'
+  # multipass reports "--" as a placeholder before the VM has a DHCP lease.
+  # Filter it here so every caller gets either a real IP or nothing.
+  multipass info "$VM_NAME" 2>/dev/null \
+    | awk -F': *' '/^IPv4/{print $2; exit}' \
+    | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' || true
 }
 
 require_running_vm() {

@@ -66,6 +66,76 @@ open_browser() {
   fi
 }
 
+PROGRESS_LOG_REMOTE="/var/log/interview-sandbox-provision.log"
+PROVISION_MAX_WAIT=1200
+
+# Polls the VM for new lines in its provisioning progress log and prints each
+# one with elapsed time as it appears. Takes the PID of a BACKGROUNDED
+# `multipass launch` call and polls while that process is still running.
+#
+# multipass launch --cloud-init blocks internally until the entire user-data
+# script (all of our runcmd steps) finishes — it does not return early once
+# the VM is merely reachable. So this must run concurrently with launch, not
+# after it, or all progress lines arrive in one batch once launch is already
+# done, which defeats the purpose of streaming them.
+#
+# This polls over plain SSH, not `multipass exec` — empirically, `multipass
+# exec` hangs indefinitely (not just slowly) against an instance that a
+# `multipass launch` is still in flight for, apparently due to some
+# per-instance locking in multipassd. Lightweight daemon queries like
+# `multipass info` stay responsive throughout, which is how the VM's IP is
+# fetched here; the actual polling then goes straight to the guest's sshd
+# using our own already-injected key, bypassing multipassd's exec path
+# entirely.
+stream_provisioning_progress() {
+  local launch_pid="$1"
+  local start_ts printed_count=0 cinit_status="running" ip=""
+  start_ts="$(date +%s)"
+
+  local i
+  for i in $(seq 1 30); do
+    ip="$(vm_ip)" || true
+    [[ -n "$ip" ]] && break
+    kill -0 "$launch_pid" 2>/dev/null || return
+    sleep 1
+  done
+  [[ -n "$ip" ]] || return
+
+  ensure_ssh_include
+  write_ssh_config "$ip"
+
+  while :; do
+    local elapsed=$(( $(date +%s) - start_ts ))
+    if (( elapsed > PROVISION_MAX_WAIT )); then
+      warn "Provisioning is taking longer than $((PROVISION_MAX_WAIT / 60)) minutes — something may be stuck."
+      warn "Check manually with: multipass exec $VM_NAME -- cloud-init status --long"
+      return
+    fi
+
+    local remote_lines
+    remote_lines="$(ssh -o ConnectTimeout=5 "$VM_NAME" "cat $PROGRESS_LOG_REMOTE" 2>/dev/null)" || true
+    if [[ -n "$remote_lines" ]]; then
+      local total
+      total="$(printf '%s\n' "$remote_lines" | wc -l | tr -d ' ')"
+      if (( total > printed_count )); then
+        printf '%s\n' "$remote_lines" | tail -n "$((total - printed_count))" | while IFS= read -r step; do
+          printf '  [%3ds] %s\n' "$elapsed" "$step"
+        done
+        printed_count="$total"
+      fi
+    fi
+
+    cinit_status="$(ssh -o ConnectTimeout=5 "$VM_NAME" "cloud-init status" 2>/dev/null | awk -F': ' '{print $2}')" || true
+    [[ "$cinit_status" == "done" || "$cinit_status" == "error" ]] && return
+
+    # Stop polling once the launch command itself has exited, whether it
+    # succeeded, failed, or hit its own timeout — nothing left to watch.
+    kill -0 "$launch_pid" 2>/dev/null || return
+
+    sleep 3
+  done
+}
+
 wait_for_code_server() {
   local i
   for i in $(seq 1 30); do

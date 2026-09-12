@@ -2,34 +2,54 @@
 ssh_authorized_keys:
   - __SSH_PUBLIC_KEY__
 
-package_update: true
-package_upgrade: false
-
-packages:
-  - git
-  - curl
-  - neovim
-  - python3
-  - python3-pip
-  - ruby-full
-  - clamav
-  - clamav-daemon
-
 write_files:
-  - path: /home/ubuntu/.config/code-server/config.yaml
-    owner: ubuntu:ubuntu
-    permissions: '0600'
+  - path: /usr/local/bin/sandbox-progress
+    permissions: '0755'
     content: |
-      bind-addr: 127.0.0.1:__CODE_SERVER_PORT__
-      auth: password
-      password: __CODE_SERVER_PASSWORD__
-      cert: false
+      #!/usr/bin/env bash
+      echo "$1" >> /var/log/interview-sandbox-provision.log
 
 runcmd:
-  - mkdir -p /home/ubuntu/workspace /home/ubuntu/incoming
-  - chown -R ubuntu:ubuntu /home/ubuntu/workspace /home/ubuntu/incoming
+  - export HOME=/root
+  - export DEBIAN_FRONTEND=noninteractive
+  - 'sandbox-progress "Updating package lists (usually 10-30s)"'
+  - apt-get update -y
+  - 'sandbox-progress "Installing base packages - git, neovim, python, ruby, clamav (usually 1-4min, the slowest single step)"'
+  - apt-get install -y git curl neovim python3 python3-pip ruby-full clamav clamav-daemon
+  - 'sandbox-progress "Setting up workspace and code-server config (a few seconds)"'
+  - mkdir -p /home/ubuntu/workspace /home/ubuntu/incoming /home/ubuntu/.config/code-server /home/ubuntu/.local/share/code-server/User
+  - chown -R ubuntu:ubuntu /home/ubuntu/workspace /home/ubuntu/incoming /home/ubuntu/.config /home/ubuntu/.local
+  - |
+    cat > /home/ubuntu/.config/code-server/config.yaml <<'CFGEOF'
+    bind-addr: 127.0.0.1:__CODE_SERVER_PORT__
+    auth: password
+    password: __CODE_SERVER_PASSWORD__
+    cert: false
+    CFGEOF
+  - chown ubuntu:ubuntu /home/ubuntu/.config/code-server/config.yaml
+  - chmod 600 /home/ubuntu/.config/code-server/config.yaml
+  - |
+    cat > /home/ubuntu/.local/share/code-server/User/settings.json <<'SETEOF'
+    {
+      "workbench.colorTheme": "Dracula Theme",
+      "workbench.startupEditor": "none"
+    }
+    SETEOF
+  - chown -R ubuntu:ubuntu /home/ubuntu/.local/share/code-server
+  - 'sandbox-progress "Installing Node.js (usually 15-45s)"'
   - curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
   - apt-get install -y nodejs
+  - 'sandbox-progress "Installing Ruby LSP language server, compiling native extensions (usually 30s-2min)"'
+  - 'gem install ruby-lsp --no-document || echo "WARN ruby-lsp gem install failed"'
+  - 'sandbox-progress "Updating ClamAV virus definitions (usually 15s-3min depending on your connection)"'
+  - systemctl stop clamav-freshclam || true
   - freshclam --quiet || true
+  - 'sandbox-progress "Installing code-server, downloading ~50MB package (usually 15s-2min depending on your connection)"'
   - curl -fsSL https://code-server.dev/install.sh | sh
+  - 'sandbox-progress "Installing editor extensions - Dracula theme, Ruby LSP, Pyright (usually 20-60s)"'
+  - 'sudo -u ubuntu -H code-server --install-extension dracula-theme.theme-dracula || echo "WARN failed to install dracula-theme.theme-dracula"'
+  - 'sudo -u ubuntu -H code-server --install-extension shopify.ruby-lsp || echo "WARN failed to install shopify.ruby-lsp"'
+  - 'sudo -u ubuntu -H code-server --install-extension ms-pyright.pyright || echo "WARN failed to install ms-pyright.pyright"'
+  - 'sandbox-progress "Starting code-server (a few seconds)"'
   - systemctl enable --now code-server@ubuntu
+  - 'sandbox-progress "Provisioning complete"'
