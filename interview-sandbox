@@ -71,7 +71,7 @@ cmd_up() {
       > "$WORKDIR/launch.log" 2>&1 &
     local launch_pid=$!
 
-    stream_provisioning_progress "$launch_pid"
+    stream_provisioning_progress "$launch_pid" || true
     wait "$launch_pid" || true
 
     if ! vm_exists; then

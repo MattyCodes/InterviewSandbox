@@ -96,10 +96,10 @@ stream_provisioning_progress() {
   for i in $(seq 1 30); do
     ip="$(vm_ip)" || true
     [[ -n "$ip" ]] && break
-    kill -0 "$launch_pid" 2>/dev/null || return
+    kill -0 "$launch_pid" 2>/dev/null || return 0
     sleep 1
   done
-  [[ -n "$ip" ]] || return
+  [[ -n "$ip" ]] || return 0
 
   ensure_ssh_include
   write_ssh_config "$ip"
@@ -109,7 +109,7 @@ stream_provisioning_progress() {
     if (( elapsed > PROVISION_MAX_WAIT )); then
       warn "Provisioning is taking longer than $((PROVISION_MAX_WAIT / 60)) minutes — something may be stuck."
       warn "Check manually with: multipass exec $VM_NAME -- cloud-init status --long"
-      return
+      return 0
     fi
 
     local remote_lines
@@ -126,11 +126,13 @@ stream_provisioning_progress() {
     fi
 
     cinit_status="$(ssh -o ConnectTimeout=5 "$VM_NAME" "cloud-init status" 2>/dev/null | awk -F': ' '{print $2}')" || true
-    [[ "$cinit_status" == "done" || "$cinit_status" == "error" ]] && return
+    if [[ "$cinit_status" == "done" || "$cinit_status" == "error" ]]; then
+      return 0
+    fi
 
     # Stop polling once the launch command itself has exited, whether it
     # succeeded, failed, or hit its own timeout — nothing left to watch.
-    kill -0 "$launch_pid" 2>/dev/null || return
+    kill -0 "$launch_pid" 2>/dev/null || return 0
 
     sleep 3
   done
