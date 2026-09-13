@@ -1,8 +1,8 @@
 # Interview Sandbox
 
-The purpose of this repository is to make it easy to create/destroy safe, 
-ephemeral VMs for interviews and technical challenges without worrying about 
-any malicious code being hidden within. It should be noted that this is not bulletproof by any means (VM-specific exploits, and attacks targeting the 
+The purpose of this repository is to make it easy to create/destroy safe,
+ephemeral VMs for interviews and technical challenges without worrying about
+any malicious code being hidden within. It should be noted that this is not bulletproof by any means (VM-specific exploits, and attacks targeting the
 host's hardware can still be effective etc), however this is still a worthwhile safety measure for most normal use-cases.
 
 ---
@@ -10,6 +10,13 @@ host's hardware can still be effective etc), however this is still a worthwhile 
 ## Requirements
 - [Multipass](https://multipass.run/install) — run `./install.sh` if you're not sure whether it's installed
 - `ssh`, `git`, `openssl` (already on macOS/Linux)
+
+---
+
+## Cross-Platform Notes
+
+- **macOS / Linux**: nothing platform-specific — use your normal terminal.
+- **Windows**: `cmd.exe` and PowerShell can't run these scripts directly. Use **Git Bash** (installed with [Git for Windows](https://git-scm.com/download/win), which also gives you `ssh` and `openssl`) — install [Multipass for Windows](https://multipass.run/install) separately, then run every `./interview-sandbox` command from a Git Bash terminal. WSL also works, but Multipass still has to be the native Windows build (it needs Hyper-V) — don't install it inside your WSL distro; WSL picks up `multipass.exe` from the Windows PATH on its own.
 
 ---
 

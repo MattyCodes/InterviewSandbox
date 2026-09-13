@@ -38,19 +38,16 @@ remote_exec() {
 }
 
 start_tunnel() {
-  if [[ -f "$TUNNEL_PID_FILE" ]] && kill -0 "$(cat "$TUNNEL_PID_FILE")" 2>/dev/null; then
+  if ssh -O check -S "$TUNNEL_CONTROL_SOCKET" "$VM_NAME" >/dev/null 2>&1; then
     return 0
   fi
-  ssh -f -N -o ExitOnForwardFailure=yes \
+  ssh -f -N -M -S "$TUNNEL_CONTROL_SOCKET" -o ExitOnForwardFailure=yes \
     -L "${CODE_SERVER_PORT}:localhost:${CODE_SERVER_PORT}" "$VM_NAME"
-  pgrep -f "L ${CODE_SERVER_PORT}:localhost:${CODE_SERVER_PORT}" | tail -n1 > "$TUNNEL_PID_FILE"
 }
 
 stop_tunnel() {
-  if [[ -f "$TUNNEL_PID_FILE" ]]; then
-    kill "$(cat "$TUNNEL_PID_FILE")" 2>/dev/null || true
-    rm -f "$TUNNEL_PID_FILE"
-  fi
+  ssh -O exit -S "$TUNNEL_CONTROL_SOCKET" "$VM_NAME" >/dev/null 2>&1 || true
+  rm -f "$TUNNEL_CONTROL_SOCKET"
 }
 
 open_browser() {
