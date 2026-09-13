@@ -12,6 +12,15 @@ write_files:
 runcmd:
   - export HOME=/root
   - export DEBIAN_FRONTEND=noninteractive
+  # Ubuntu cloud images run unattended-upgrades on a timer shortly after boot.
+  # On the VirtualBox backend that can silently pull in a newer kernel than
+  # the one this image's prebuilt Guest Additions module was compiled for,
+  # breaking the guest-property channel Multipass uses to report the VM's IP
+  # back to the host (the VM stays healthy and reachable on the network, but
+  # `multipass info`/`vm_ip` never sees an address). This is a short-lived,
+  # single-purpose sandbox, so skip automatic updates entirely.
+  - systemctl disable --now apt-daily.timer apt-daily-upgrade.timer unattended-upgrades.service || true
+  - systemctl mask apt-daily.timer apt-daily-upgrade.timer || true
   - 'sandbox-progress "Updating package lists (usually 10-30s)"'
   - apt-get update -y
   - 'sandbox-progress "Installing base packages - git, neovim, python, ruby, clamav (usually 1-4min, the slowest single step)"'
