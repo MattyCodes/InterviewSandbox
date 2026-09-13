@@ -55,17 +55,22 @@ windows_virtualbox_dir() {
 # LocalSystem service account, and under that account VirtualBox doesn't
 # reliably attach the second (host-only) adapter it normally uses for
 # host<->guest reachability. The VM itself is perfectly healthy in that
-# case, just unreachable by IP, so instead of giving up we forward a local
-# port through to the guest's SSH port over the existing NAT adapter and
-# connect via localhost. `controlvm ... natpf1` can be applied to an
-# already-running VM, no reboot/poweroff needed, and re-adding an existing
-# rule is a harmless no-op.
+# case, just unreachable by IP.
 #
-# Configuring it has to run as the same LocalSystem account Multipass uses
+# Multipass still needs its own way to reach the guest for things like
+# `multipass exec`, though, so it already forwards a host port to the
+# guest's SSH port over the NAT adapter on a rule named "ssh" — it just
+# doesn't surface that port anywhere `multipass info`/`vm_ip` looks. Rather
+# than fight it with a second, conflicting rule of our own (VirtualBox
+# rejects a duplicate rule *name* even on a different port, which is what
+# an earlier version of this function ran into), just read the port back
+# out and connect through that.
+#
+# Reading it has to run as the same LocalSystem account Multipass uses
 # (regular VBoxManage.exe, run as yourself, can't even see the VM — it's
 # registered under a different Windows account's VirtualBox profile), which
 # needs PsExec (Sysinternals) since bash has no native way to do that.
-ensure_windows_nat_forward() {
+discover_windows_nat_ssh_port() {
   is_windows_host || return 1
   multipass exec "$VM_NAME" -- true >/dev/null 2>&1 || return 1
 
@@ -73,8 +78,8 @@ ensure_windows_nat_forward() {
   psexec="$(find_psexec)" || {
     err "This VM has no host-routable IP — on Windows + VirtualBox that usually means"
     err "Multipass only attached a NAT adapter (a known Multipass/VirtualBox limitation"
-    err "on Windows). Fixing it needs PsExec (Sysinternals) to configure a port forward"
-    err "as the account Multipass runs under:"
+    err "on Windows). Reading the SSH port Multipass already forwards for its own use"
+    err "needs PsExec (Sysinternals), run as the account Multipass runs under:"
     err "  1. Download PsTools: https://learn.microsoft.com/en-us/sysinternals/downloads/pstools"
     err "  2. Put PsExec64.exe somewhere on your PATH"
     err "  3. Re-run this command"
@@ -89,15 +94,23 @@ ensure_windows_nat_forward() {
     return 1
   fi
 
-  "$psexec" -s -nobanner -accepteula "$vboxmanage_native" controlvm "$VM_NAME" \
-    natpf1 "ssh,tcp,,${SSH_FALLBACK_PORT},,22" >/dev/null 2>&1 || true
+  local info port
+  info="$("$psexec" -s -nobanner -accepteula "$vboxmanage_native" showvminfo "$VM_NAME" --machinereadable 2>/dev/null)" || true
+  # Lines look like: Forwarding(0)="ssh,tcp,,61106,,22" — match on the rule
+  # that targets guest port 22, regardless of what it's named or which
+  # index it's at.
+  port="$(printf '%s\n' "$info" | sed -n 's/^Forwarding([0-9]*)="[^,]*,tcp,[^,]*,\([0-9]*\),[^,]*,22"$/\1/p' | head -n1)"
 
-  return 0
+  if [[ -z "$port" ]]; then
+    err "Could not find an existing SSH port forward on this VM's NAT adapter."
+    return 1
+  fi
+  printf '%s' "$port"
 }
 
 # Figures out how to reach the VM over SSH, setting VM_SSH_HOST/VM_SSH_PORT.
 # Prefers a direct routable IP; falls back to the Windows NAT-forward
-# workaround above when there isn't one but the VM is otherwise reachable.
+# discovery above when there isn't one but the VM is otherwise reachable.
 resolve_vm_endpoint() {
   local ip
   ip="$(vm_ip)" || true
@@ -107,9 +120,10 @@ resolve_vm_endpoint() {
     return 0
   fi
 
-  if ensure_windows_nat_forward; then
+  local nat_port
+  if nat_port="$(discover_windows_nat_ssh_port)"; then
     VM_SSH_HOST="127.0.0.1"
-    VM_SSH_PORT="$SSH_FALLBACK_PORT"
+    VM_SSH_PORT="$nat_port"
     return 0
   fi
 

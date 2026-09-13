@@ -14,12 +14,6 @@ KNOWN_HOSTS_FILE="$WORKDIR/known_hosts"
 TUNNEL_CONTROL_SOCKET="$WORKDIR/tunnel.sock"
 PASSWORD_FILE="$WORKDIR/code-server-password"
 
-# Some Windows + VirtualBox combinations only ever attach a NAT adapter to
-# the VM (see ensure_windows_nat_forward in lib/ssh.sh), leaving it with no
-# host-routable IP. When that happens, we forward this local port through to
-# the guest's SSH port instead and connect via localhost.
-SSH_FALLBACK_PORT="2222"
-
 SSH_CONFIG_DIR="$HOME/.ssh/config.d"
 SSH_CONFIG_FILE="$SSH_CONFIG_DIR/interview-sandbox.conf"
 SSH_MAIN_CONFIG="$HOME/.ssh/config"
