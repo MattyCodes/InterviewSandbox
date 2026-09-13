@@ -31,8 +31,7 @@ runcmd:
   - |
     cat > /home/ubuntu/.config/code-server/config.yaml <<'CFGEOF'
     bind-addr: 127.0.0.1:__CODE_SERVER_PORT__
-    auth: password
-    password: __CODE_SERVER_PASSWORD__
+    auth: none
     cert: false
     CFGEOF
   - chown ubuntu:ubuntu /home/ubuntu/.config/code-server/config.yaml

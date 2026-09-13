@@ -12,7 +12,6 @@ WORKDIR="$HOME/.interview-sandbox"
 KEY_FILE="$WORKDIR/keys/id_ed25519"
 KNOWN_HOSTS_FILE="$WORKDIR/known_hosts"
 TUNNEL_CONTROL_SOCKET="$WORKDIR/tunnel.sock"
-PASSWORD_FILE="$WORKDIR/code-server-password"
 
 SSH_CONFIG_DIR="$HOME/.ssh/config.d"
 SSH_CONFIG_FILE="$SSH_CONFIG_DIR/interview-sandbox.conf"

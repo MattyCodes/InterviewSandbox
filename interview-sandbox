@@ -44,16 +44,12 @@ cmd_up() {
   else
     [[ -f "$KEY_FILE" ]] || ssh-keygen -t ed25519 -N "" -f "$KEY_FILE" -C "interview-sandbox" -q
 
-    local pubkey password cloud_init_file
+    local pubkey cloud_init_file
     pubkey="$(cat "${KEY_FILE}.pub")"
-    password="$(openssl rand -hex 4)"
-    echo "$password" > "$PASSWORD_FILE"
-    chmod 600 "$PASSWORD_FILE"
 
     cloud_init_file="$(mktemp)"
     trap 'rm -f "$cloud_init_file"' RETURN
     sed -e "s|__SSH_PUBLIC_KEY__|$pubkey|" \
-        -e "s|__CODE_SERVER_PASSWORD__|$password|" \
         -e "s|__CODE_SERVER_PORT__|$CODE_SERVER_PORT|" \
         "$SCRIPT_DIR/lib/provision/cloud-init.yaml.tmpl" > "$cloud_init_file"
 
@@ -100,11 +96,8 @@ cmd_up() {
   log "Opening browser..."
   open_browser "http://localhost:${CODE_SERVER_PORT}"
 
-  local password
-  password="$(cat "$PASSWORD_FILE" 2>/dev/null || echo "(see ~/.config/code-server/config.yaml in the VM)")"
-
   echo
-  echo "Editor open at http://localhost:${CODE_SERVER_PORT} (password: ${password}, shown once)"
+  echo "Editor open at http://localhost:${CODE_SERVER_PORT}"
   echo
   echo "Pull in the challenge repo:"
   echo "  interview-sandbox open <repo-url>"
