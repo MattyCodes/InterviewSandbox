@@ -88,12 +88,10 @@ cmd_up() {
     fi
   fi
 
-  local ip
-  ip="$(vm_ip)" || true
-  [[ -n "$ip" ]] || die "Could not determine VM IP address."
+  resolve_vm_endpoint || die "Could not determine VM IP address."
 
   ensure_ssh_include
-  write_ssh_config "$ip"
+  write_ssh_config "$VM_SSH_HOST" "$VM_SSH_PORT"
   wait_for_code_server
 
   log "Starting code-server, opening tunnel..."
@@ -146,7 +144,8 @@ cmd_open() {
 cmd_code() {
   require_running_vm
   ensure_ssh_include
-  write_ssh_config "$(vm_ip)"
+  resolve_vm_endpoint || die "Could not determine VM IP address."
+  write_ssh_config "$VM_SSH_HOST" "$VM_SSH_PORT"
   start_tunnel
   open_browser "http://localhost:${CODE_SERVER_PORT}"
   echo "Editor open at http://localhost:${CODE_SERVER_PORT}"

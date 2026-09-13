@@ -14,6 +14,12 @@ KNOWN_HOSTS_FILE="$WORKDIR/known_hosts"
 TUNNEL_CONTROL_SOCKET="$WORKDIR/tunnel.sock"
 PASSWORD_FILE="$WORKDIR/code-server-password"
 
+# Some Windows + VirtualBox combinations only ever attach a NAT adapter to
+# the VM (see ensure_windows_nat_forward in lib/ssh.sh), leaving it with no
+# host-routable IP. When that happens, we forward this local port through to
+# the guest's SSH port instead and connect via localhost.
+SSH_FALLBACK_PORT="2222"
+
 SSH_CONFIG_DIR="$HOME/.ssh/config.d"
 SSH_CONFIG_FILE="$SSH_CONFIG_DIR/interview-sandbox.conf"
 SSH_MAIN_CONFIG="$HOME/.ssh/config"
@@ -46,4 +52,18 @@ vm_ip() {
 require_running_vm() {
   vm_exists || die "No sandbox VM found. Run 'interview-sandbox up' first."
   [[ "$(vm_state)" == "Running" ]] || die "Sandbox VM isn't running. Run 'interview-sandbox up' first."
+}
+
+is_windows_host() {
+  command -v cmd.exe >/dev/null 2>&1
+}
+
+# Converts a native Windows path (e.g. "C:\Program Files\Foo") to the POSIX
+# form bash needs to use it directly (e.g. "/c/Program Files/Foo").
+to_posix_path() {
+  if command -v cygpath >/dev/null 2>&1; then
+    cygpath -u "$1"
+  else
+    printf '%s' "$1" | sed -e 's#^\([A-Za-z]\):#/\L\1#' -e 's#\\#/#g'
+  fi
 }
